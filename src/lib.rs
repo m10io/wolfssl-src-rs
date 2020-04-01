@@ -31,6 +31,7 @@ pub struct Build {
     target: Option<String>,
     host: Option<String>,
     features: FeatureFlags,
+    force_sgx: bool,
 }
 
 pub struct Artifacts {
@@ -46,6 +47,7 @@ impl Build {
             target: env::var("TARGET").ok(),
             host: env::var("HOST").ok(),
             features: FeatureFlags::empty(),
+            force_sgx: false,
         }
     }
 
@@ -71,6 +73,11 @@ impl Build {
 
     pub fn clear_features(&mut self, flags: FeatureFlags) -> &mut Build {
         self.features.remove(flags);
+        self
+    }
+
+    pub fn force_sgx(&mut self, force: bool) -> &mut Build {
+        self.force_sgx = force;
         self
     }
 
@@ -109,7 +116,7 @@ impl Build {
         apply_patches(features, &inner_dir);
 
         // Run the custom Makefile instead of using autogen/configure/make for SGX builds.
-        if target.ends_with("-sgx") {
+        if self.force_sgx || target.ends_with("-sgx") {
             let mut make = self.cmd_make();
             make.args(&["-f", "sgx_t_static.mk", "all"])
                 .current_dir(inner_dir.join("IDE/LINUX-SGX"));
