@@ -355,6 +355,9 @@ fn apply_patches(features: FeatureFlags, inner: &Path) {
 
     if features.intersects(FeatureFlags::ED25519) {
         sgx_files.push("$(WOLFSSL_ROOT)/wolfcrypt/src/ed25519.c");
+        sgx_files.push("$(WOLFSSL_ROOT)/wolfcrypt/src/fe_operations.c");
+        sgx_files.push("$(WOLFSSL_ROOT)/wolfcrypt/src/ge_operations.c");
+        sgx_defines.push("    #define WOLFSSL_SHA512");
         sgx_defines.push("    #define HAVE_ED25519");
     }
 
