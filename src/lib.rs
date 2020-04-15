@@ -13,8 +13,9 @@ use std::{
 
 bitflags! {
     pub struct FeatureFlags: usize {
-        const CURVE25519 = 0b0001;
-        const ED25519 = 0b0010;
+        const TLS13 = 0b0001;
+        const CURVE25519 = 0b0010;
+        const ED25519 = 0b0100;
     }
 }
 
@@ -275,6 +276,10 @@ impl Build {
                 "--disable-shared",
             ]);
 
+            if features.intersects(FeatureFlags::TLS13) {
+                configure.arg("--enable-tls13");
+            }
+
             if features.intersects(FeatureFlags::CURVE25519) {
                 configure.arg("--enable-curve25519");
             }
@@ -354,6 +359,12 @@ fn apply_patches(features: FeatureFlags, inner: &Path) {
     // Manually enable features for SGX that are not part of the default Makefile and settings.
     let mut sgx_files = vec![];
     let mut sgx_defines = vec![];
+
+    if features.intersects(FeatureFlags::TLS13) {
+        sgx_defines.push("    #define WOLFSSL_TLS13");
+        sgx_defines.push("    #define HAVE_TLS_EXTENSIONS");
+        sgx_defines.push("    #define HAVE_SUPPORTED_CURVES");
+    }
 
     if features.intersects(FeatureFlags::CURVE25519) {
         sgx_files.push("$(WOLFSSL_ROOT)/wolfcrypt/src/curve25519.c");
