@@ -19,6 +19,13 @@ bitflags! {
     }
 }
 
+/// User-defined `XTIME` build options.
+#[derive(Default)]
+pub struct UserTime {
+    /// Custom `time_t` type definition.
+    pub time_t: Option<String>,
+}
+
 pub fn source_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("wolfssl")
 }
@@ -32,6 +39,7 @@ pub struct Build {
     target: Option<String>,
     host: Option<String>,
     features: FeatureFlags,
+    user_time: Option<UserTime>,
     force_sgx: bool,
 }
 
@@ -48,6 +56,7 @@ impl Build {
             target: env::var("TARGET").ok(),
             host: env::var("HOST").ok(),
             features: FeatureFlags::empty(),
+            user_time: None,
             force_sgx: false,
         }
     }
@@ -74,6 +83,11 @@ impl Build {
 
     pub fn clear_features(&mut self, flags: FeatureFlags) -> &mut Build {
         self.features.remove(flags);
+        self
+    }
+
+    pub fn user_time(&mut self, user_time: UserTime) -> &mut Build {
+        self.user_time = Some(user_time);
         self
     }
 
@@ -114,7 +128,7 @@ impl Build {
         let inner_dir = build_dir.join("src");
         fs::create_dir_all(&inner_dir).unwrap();
         cp_r(&source_dir(), &inner_dir);
-        apply_patches(features, &inner_dir);
+        apply_patches(features, &self.user_time, &inner_dir);
 
         // Run the custom Makefile instead of using autogen/configure/make for SGX builds.
         if self.force_sgx || target.ends_with("-sgx") {
@@ -355,7 +369,25 @@ fn cp_r(src: &Path, dst: &Path) {
     }
 }
 
-fn apply_patches(features: FeatureFlags, inner: &Path) {
+fn apply_patches(features: FeatureFlags, user_time: &Option<UserTime>, inner: &Path) {
+    // Patch the custom user time definitions if provided.
+    if let Some(user_time) = user_time {
+        let pattern = "#ifdef __cplusplus\n    extern \"C\" {\n#endif\n";
+        let mut replacement_code = format!("{}#define USER_TIME\n", pattern);
+        if let Some(time_t) = user_time.time_t.as_deref() {
+            // Include `stdint.h` (before the `extern "C"` block starts) to better accommodate
+            // specific-width integer types for custom `time_t` definitions.
+            replacement_code = format!(
+                "#include <stdint.h>\n{}#define HAVE_TIME_T_TYPE\ntypedef {} time_t;\n",
+                replacement_code, time_t
+            );
+        }
+
+        do_patch(inner.join("wolfssl/wolfcrypt/wc_port.h"), |buf| {
+            *buf = buf.replace(pattern, &replacement_code);
+        });
+    }
+
     // Manually enable features for SGX that are not part of the default Makefile and settings.
     let mut sgx_files = vec![];
     let mut sgx_defines = vec![];
