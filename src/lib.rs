@@ -396,6 +396,8 @@ fn apply_patches(features: FeatureFlags, user_time: &Option<UserTime>, inner: &P
         sgx_defines.push("    #define WOLFSSL_TLS13");
         sgx_defines.push("    #define HAVE_TLS_EXTENSIONS");
         sgx_defines.push("    #define HAVE_SUPPORTED_CURVES");
+        sgx_defines.push("    #define HAVE_FFDHE_2048");
+        sgx_defines.push("    #define WC_RSA_PSS");
     }
 
     if features.intersects(FeatureFlags::CURVE25519) {
