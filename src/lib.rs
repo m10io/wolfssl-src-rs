@@ -386,6 +386,9 @@ fn apply_patches(features: FeatureFlags, inner: &Path) {
                 &format!("Wolfssl_C_Files :={} ", sgx_files.join(" "),),
             );
         });
+    }
+
+    if !sgx_defines.is_empty() {
         do_patch(inner.join("wolfssl/wolfcrypt/settings.h"), |buf| {
             *buf = buf.replace(
                 "#endif /* WOLFSSL_SGX */",
