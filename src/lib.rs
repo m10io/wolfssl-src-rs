@@ -13,9 +13,12 @@ use std::{
 
 bitflags! {
     pub struct FeatureFlags: usize {
-        const TLS13 = 0b0001;
-        const CURVE25519 = 0b0010;
-        const ED25519 = 0b0100;
+        #[allow(clippy::identity_op)]
+        const TLS13 = 1 << 0;
+        const CURVE25519 = 1 << 1;
+        const ED25519 = 1 << 2;
+        const KEYGEN = 1 << 3;
+        const CERTGEN = 1 << 4;
     }
 }
 
@@ -302,6 +305,14 @@ impl Build {
                 configure.arg("--enable-ed25519");
             }
 
+            if features.intersects(FeatureFlags::KEYGEN) {
+                configure.arg("--enable-keygen");
+            }
+
+            if features.intersects(FeatureFlags::CERTGEN) {
+                configure.arg("--enable-certgen");
+            }
+
             configure.current_dir(&inner_dir);
             self.run_command(configure, "configuring wolfSSL build");
 
@@ -411,6 +422,21 @@ fn apply_patches(features: FeatureFlags, user_time: &Option<UserTime>, inner: &P
         sgx_files.push("$(WOLFSSL_ROOT)/wolfcrypt/src/ge_operations.c");
         sgx_defines.push("    #define WOLFSSL_SHA512");
         sgx_defines.push("    #define HAVE_ED25519");
+    }
+
+    if features.intersects(FeatureFlags::KEYGEN) {
+        sgx_defines.push("    #define WOLFSSL_KEY_GEN");
+    }
+
+    if features.intersects(FeatureFlags::CERTGEN) {
+        sgx_defines.push("    #define WOLFSSL_CERT_GEN");
+
+        // Custom `XTIME()` implementation is needed for ASN.1 functions that rely on system time in
+        // SGX builds (`NO_ASN_TIME` is normally defined for SGX, but we can undefine it if we have
+        // time support).
+        if user_time.is_some() {
+            sgx_defines.push("    #undef NO_ASN_TIME");
+        }
     }
 
     if !sgx_files.is_empty() {
