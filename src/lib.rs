@@ -47,6 +47,7 @@ pub struct Build {
     out_dir: Option<PathBuf>,
     target: Option<String>,
     host: Option<String>,
+    debug: bool,
     features: FeatureFlags,
     user_time: Option<UserTime>,
     user_ticks: Option<UserTicks>,
@@ -65,6 +66,7 @@ impl Build {
             out_dir: env::var_os("OUT_DIR").map(|s| PathBuf::from(s).join("wolfssl-build")),
             target: env::var("TARGET").ok(),
             host: env::var("HOST").ok(),
+            debug: cfg!(debug_assertions),
             features: FeatureFlags::empty(),
             user_time: None,
             user_ticks: None,
@@ -84,6 +86,11 @@ impl Build {
 
     pub fn host(&mut self, host: &str) -> &mut Build {
         self.host = Some(host.to_string());
+        self
+    }
+
+    pub fn debug(&mut self, enable: bool) -> &mut Build {
+        self.debug = enable;
         self
     }
 
@@ -161,7 +168,8 @@ impl Build {
         if self.force_sgx || target.ends_with("-sgx") {
             let mut make = self.cmd_make();
             make.args(&["-f", "sgx_t_static.mk", "all"])
-                .current_dir(inner_dir.join("IDE/LINUX-SGX"));
+                .current_dir(inner_dir.join("IDE/LINUX-SGX"))
+                .env("SGX_DEBUG", if self.debug { "1" } else { "0" });
             self.run_command(make, "building wolfSSL for SGX");
 
             // Makefile doesn't install to a prefix, so copy build artifacts manually.
@@ -317,6 +325,10 @@ impl Build {
                 "--disable-shared",
             ]);
 
+            if self.debug {
+                configure.arg("--enable-debug");
+            }
+
             if features.intersects(FeatureFlags::HKDF) {
                 configure.arg("--enable-hkdf");
             }
@@ -353,7 +365,10 @@ impl Build {
             self.run_command(install, "installing wolfSSL");
         }
 
-        fs::remove_dir_all(&inner_dir).unwrap();
+        // Keep source files for debugger use.
+        if !self.debug {
+            fs::remove_dir_all(&inner_dir).unwrap();
+        }
 
         Artifacts {
             lib_dir: install_dir.join("lib"),
