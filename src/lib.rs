@@ -4,6 +4,7 @@
 
 use bitflags::bitflags;
 use std::{
+    borrow::Cow,
     env,
     fs::{self, File},
     io::{Read, Write},
@@ -29,6 +30,10 @@ pub struct UserTime {
     pub time_t: Option<String>,
 }
 
+/// User-defined `LowResTimer` and `TimeNowInMilliseconds` build options.
+#[derive(Default)]
+pub struct UserTicks {}
+
 pub fn source_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("wolfssl")
 }
@@ -43,6 +48,7 @@ pub struct Build {
     host: Option<String>,
     features: FeatureFlags,
     user_time: Option<UserTime>,
+    user_ticks: Option<UserTicks>,
     force_sgx: bool,
 }
 
@@ -60,6 +66,7 @@ impl Build {
             host: env::var("HOST").ok(),
             features: FeatureFlags::empty(),
             user_time: None,
+            user_ticks: None,
             force_sgx: false,
         }
     }
@@ -91,6 +98,11 @@ impl Build {
 
     pub fn user_time(&mut self, user_time: UserTime) -> &mut Build {
         self.user_time = Some(user_time);
+        self
+    }
+
+    pub fn user_ticks(&mut self, user_ticks: UserTicks) -> &mut Build {
+        self.user_ticks = Some(user_ticks);
         self
     }
 
@@ -131,7 +143,12 @@ impl Build {
         let inner_dir = build_dir.join("src");
         fs::create_dir_all(&inner_dir).unwrap();
         cp_r(&source_dir(), &inner_dir);
-        apply_patches(features, &self.user_time, &inner_dir);
+        apply_patches(
+            features,
+            self.user_time.as_ref(),
+            self.user_ticks.as_ref(),
+            &inner_dir,
+        );
 
         // Run the custom Makefile instead of using autogen/configure/make for SGX builds.
         if self.force_sgx || target.ends_with("-sgx") {
@@ -380,18 +397,32 @@ fn cp_r(src: &Path, dst: &Path) {
     }
 }
 
-fn apply_patches(features: FeatureFlags, user_time: &Option<UserTime>, inner: &Path) {
+fn apply_patches(
+    features: FeatureFlags,
+    user_time: Option<&UserTime>,
+    user_ticks: Option<&UserTicks>,
+    inner: &Path,
+) {
     // Patch the custom user time definitions if provided.
-    if let Some(user_time) = user_time {
+    if user_time.is_some() || user_ticks.is_some() {
         let pattern = "#ifdef __cplusplus\n    extern \"C\" {\n#endif\n";
-        let mut replacement_code = format!("{}#define USER_TIME\n", pattern);
-        if let Some(time_t) = user_time.time_t.as_deref() {
-            // Include `stdint.h` (before the `extern "C"` block starts) to better accommodate
-            // specific-width integer types for custom `time_t` definitions.
-            replacement_code = format!(
-                "#include <stdint.h>\n{}#define HAVE_TIME_T_TYPE\ntypedef {} time_t;\n",
-                replacement_code, time_t
-            );
+        let mut replacement_code = Cow::from(pattern);
+
+        if let Some(user_time) = user_time {
+            replacement_code = format!("{}#define USER_TIME\n", replacement_code).into();
+            if let Some(time_t) = user_time.time_t.as_deref() {
+                // Include `stdint.h` (before the `extern "C"` block starts) to better accommodate
+                // specific-width integer types for custom `time_t` definitions.
+                replacement_code = format!(
+                    "#include <stdint.h>\n{}#define HAVE_TIME_T_TYPE\ntypedef {} time_t;\n",
+                    replacement_code, time_t
+                )
+                .into();
+            }
+        }
+
+        if let Some(_user_ticks) = user_ticks {
+            replacement_code = format!("{}#define USER_TICKS\n", replacement_code).into();
         }
 
         do_patch(inner.join("wolfssl/wolfcrypt/wc_port.h"), |buf| {
