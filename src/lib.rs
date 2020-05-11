@@ -14,11 +14,12 @@ use std::{
 bitflags! {
     pub struct FeatureFlags: usize {
         #[allow(clippy::identity_op)]
-        const TLS13 = 1 << 0;
-        const CURVE25519 = 1 << 1;
-        const ED25519 = 1 << 2;
-        const KEYGEN = 1 << 3;
-        const CERTGEN = 1 << 4;
+        const HKDF = 1 << 0;
+        const TLS13 = 1 << 1;
+        const CURVE25519 = 1 << 2;
+        const ED25519 = 1 << 3;
+        const KEYGEN = 1 << 4;
+        const CERTGEN = 1 << 5;
     }
 }
 
@@ -122,8 +123,14 @@ impl Build {
             fs::remove_dir_all(&install_dir).unwrap();
         }
 
-        // Automatically enable Curve25519 support if Ed25519 support is requested.
+        // Automatically enable features that depend on other features (`configure` may do this
+        // automatically, but SGX builds will not).
         let mut features = self.features;
+
+        if features.intersects(FeatureFlags::TLS13) {
+            features.insert(FeatureFlags::HKDF);
+        }
+
         if features.intersects(FeatureFlags::ED25519) {
             features.insert(FeatureFlags::CURVE25519);
         }
@@ -293,6 +300,10 @@ impl Build {
                 "--disable-shared",
             ]);
 
+            if features.intersects(FeatureFlags::HKDF) {
+                configure.arg("--enable-hkdf");
+            }
+
             if features.intersects(FeatureFlags::TLS13) {
                 configure.arg("--enable-tls13");
             }
@@ -400,10 +411,19 @@ fn apply_patches(features: FeatureFlags, user_time: &Option<UserTime>, inner: &P
     }
 
     // Manually enable features for SGX that are not part of the default Makefile and settings.
+    // `WOLFSSL_USER_IO` should always be enabled for SGX builds to disable default BSD socket I/O
+    // support (we'll typically provide our own callbacks at runtime to avoid any dependencies on
+    // any one particular socket implementation and the OCALLs needed for that implementation,
+    // especially if we end up using Rust-specific types anyway).
     let mut sgx_files = vec![];
-    let mut sgx_defines = vec![];
+    let mut sgx_defines = vec!["    #define WOLFSSL_USER_IO"];
+
+    if features.intersects(FeatureFlags::HKDF) {
+        sgx_defines.push("    #define HAVE_HKDF");
+    }
 
     if features.intersects(FeatureFlags::TLS13) {
+        sgx_files.push("$(WOLFSSL_ROOT)/src/tls13.c");
         sgx_defines.push("    #define WOLFSSL_TLS13");
         sgx_defines.push("    #define HAVE_TLS_EXTENSIONS");
         sgx_defines.push("    #define HAVE_SUPPORTED_CURVES");
