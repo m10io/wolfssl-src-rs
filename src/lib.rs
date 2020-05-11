@@ -21,6 +21,8 @@ bitflags! {
         const ED25519 = 1 << 3;
         const KEYGEN = 1 << 4;
         const CERTGEN = 1 << 5;
+
+        const KEEP_PEER_CERT = 1 << 6;
     }
 }
 
@@ -329,6 +331,16 @@ impl Build {
                 configure.arg("--enable-debug");
             }
 
+            let mut cflags = String::new();
+            let mut push_cflag = |flag: &str| {
+                if cflags.is_empty() {
+                    cflags = flag.into();
+                } else {
+                    cflags.push(' ');
+                    cflags.push_str(flag);
+                }
+            };
+
             if features.intersects(FeatureFlags::HKDF) {
                 configure.arg("--enable-hkdf");
             }
@@ -353,7 +365,13 @@ impl Build {
                 configure.arg("--enable-certgen");
             }
 
-            configure.current_dir(&inner_dir);
+            if features.intersects(FeatureFlags::KEEP_PEER_CERT) {
+                // `KEEP_PEER_CERT` is typically dependent on other features, but we want to be able
+                // to enable it on its own.
+                push_cflag("-DKEEP_PEER_CERT");
+            }
+
+            configure.env("CFLAGS", cflags).current_dir(&inner_dir);
             self.run_command(configure, "configuring wolfSSL build");
 
             let mut build = self.cmd_make();
@@ -503,6 +521,10 @@ fn apply_patches(
         if user_time.is_some() {
             sgx_defines.push("    #undef NO_ASN_TIME");
         }
+    }
+
+    if features.intersects(FeatureFlags::KEEP_PEER_CERT) {
+        sgx_defines.push("    #define KEEP_PEER_CERT");
     }
 
     if !sgx_files.is_empty() {
