@@ -169,9 +169,14 @@ impl Build {
         // Run the custom Makefile instead of using autogen/configure/make for SGX builds.
         if self.force_sgx || target.ends_with("-sgx") {
             let mut make = self.cmd_make();
-            make.args(&["-f", "sgx_t_static.mk", "all"])
-                .current_dir(inner_dir.join("IDE/LINUX-SGX"))
-                .env("SGX_DEBUG", if self.debug { "1" } else { "0" });
+            make.args(&[
+                "-f",
+                "sgx_t_static.mk",
+                &format!("SGX_DEBUG={}", if self.debug { "1" } else { "0" }),
+                "HAVE_WOLFSSL_SP=1",
+                "all",
+            ])
+            .current_dir(inner_dir.join("IDE/LINUX-SGX"));
             self.run_command(make, "building wolfSSL for SGX");
 
             // Makefile doesn't install to a prefix, so copy build artifacts manually.
