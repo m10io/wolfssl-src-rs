@@ -1,6 +1,6 @@
 [package]
 name = "wolfssl-src"
-version = "0.1.0+4.3.0"
+version = "0.1.0+4.5.0"
 authors = ["Theodore Cipicchio <theodore.cipicchio@m10.io>"]
 edition = "2018"
 description = "Source of wolfSSL and logic to build it"
