@@ -461,6 +461,38 @@ fn apply_patches(
     user_ticks: Option<&UserTicks>,
     inner: &Path,
 ) {
+    // Patch the SGX makefile to incorporate LVI mitigation compiler settings.
+    do_patch(inner.join("IDE/LINUX-SGX/sgx_t_static.mk"), |buf| {
+        // Patch the missing `buildenv.mk` include and update `MITIGATION_CFLAGS` for GCC 8+
+        // compatibility with SGX SDK releases prior to 2.10.
+        *buf = buf.replace(
+            "WOLFSSL_ROOT ?= $(shell readlink -f ../..)\n",
+            concat!(
+                "WOLFSSL_ROOT ?= $(shell readlink -f ../..)\n",
+                "include $(SGX_SDK)/buildenv.mk\n",
+                "ifneq ($(MITIGATION-CVE-2020-0551), )\n",
+                "    WOLFSSL_CC_VERSION := $(shell $(CC) -dumpversion)\n",
+                "    WOLFSSL_CC_NO_LESS_THAN_8 := $(shell expr $(WOLFSSL_CC_VERSION) \\>\\= \"8\")\n",
+                "    ifeq ($(WOLFSSL_CC_NO_LESS_THAN_8), 1)\n",
+                "        MITIGATION_CFLAGS += -fcf-protection=none\n",
+                "    endif\n",
+                "endif\n"
+            ),
+        );
+
+        // Patch LVI mitigation compiler flag use.
+        *buf = buf.replace(
+            "Common_C_Cpp_Flags :=",
+            "Common_C_Cpp_Flags := $(MITIGATION_CFLAGS)",
+        );
+
+        // Link flags aren't used, but we'll patch them anyway for consistency.
+        *buf = buf.replace(
+            "Wolfssl_Link_Flags :=",
+            "Wolfssl_Link_Flags := $(MITIGATION_CFLAGS)",
+        );
+    });
+
     // Patch the custom user time definitions if provided.
     if user_time.is_some() || user_ticks.is_some() {
         let pattern = "#ifdef __cplusplus\n    extern \"C\" {\n#endif\n";
