@@ -22,7 +22,11 @@ bitflags! {
         const KEYGEN = 1 << 4;
         const CERTGEN = 1 << 5;
 
-        const KEEP_PEER_CERT = 1 << 6;
+        const AESGCM = 1 << 6;
+
+        const PKCS7 = 1 << 7;
+
+        const KEEP_PEER_CERT = 1 << 8;
     }
 }
 
@@ -379,6 +383,14 @@ impl Build {
                 configure.arg("--enable-certgen");
             }
 
+            if features.intersects(FeatureFlags::AESGCM) {
+                configure.arg("--enable-aesgcm");
+            }
+
+            if features.intersects(FeatureFlags::PKCS7) {
+                configure.arg("--enable-pkcs7");
+            }
+
             if features.intersects(FeatureFlags::KEEP_PEER_CERT) {
                 // `KEEP_PEER_CERT` is typically dependent on other features, but we want to be able
                 // to enable it on its own.
@@ -567,6 +579,20 @@ fn apply_patches(
         if user_time.is_some() {
             sgx_defines.push("    #undef NO_ASN_TIME");
         }
+    }
+
+    if features.intersects(FeatureFlags::AESGCM) {
+        sgx_defines.push("    #define HAVE_AESGCM");
+    }
+
+    if features.intersects(FeatureFlags::PKCS7) {
+        // AES_KEYWRAP and X963KDF are prerequisites of PKCS #7 support, but we don't have separate
+        // feature flags that affect them at this time.
+        sgx_defines.push("    #define HAVE_AES_KEYWRAP");
+        sgx_defines.push("    #define WOLFSSL_AES_DIRECT");
+        sgx_defines.push("    #define HAVE_X963_KDF");
+
+        sgx_defines.push("    #define HAVE_PKCS7")
     }
 
     if features.intersects(FeatureFlags::KEEP_PEER_CERT) {
